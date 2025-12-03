@@ -1,0 +1,5 @@
+{
+  "name": "Firebase Storage Dashboard",
+  "description": "A professional dark-mode dashboard to view and manage files from a specific Firebase Storage bucket.",
+  "requestFramePermissions": []
+}
