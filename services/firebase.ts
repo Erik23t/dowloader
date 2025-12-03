@@ -1,4 +1,3 @@
-// Fix: Use namespace import to resolve issue with initializeApp export in some environments
 import * as firebaseApp from 'firebase/app';
 import { getStorage, ref, listAll, getDownloadURL, uploadBytesResumable, deleteObject } from 'firebase/storage';
 
@@ -15,8 +14,8 @@ const firebaseConfig = {
 };
 
 // Inicialização do App
-// Fix: Access initializeApp from the namespace object and cast to any to avoid type errors
-const app = (firebaseApp as any).initializeApp(firebaseConfig);
+// Using namespace import to avoid "no exported member" error in some environments
+const app = firebaseApp.initializeApp(firebaseConfig);
 
 // Inicialização do Storage com o bucket explícito conforme solicitado
 // CRÍTICO: Apontando para o bucket secundário
@@ -133,7 +132,6 @@ export const listFiles = async (): Promise<FileItem[]> => {
 };
 
 const isImageFile = (filename: string): boolean => {
-  // Remove parâmetros de query string se houver (embora filename do storage não tenha)
   const cleanName = filename.split('?')[0];
   const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'tiff'];
   const ext = cleanName.split('.').pop()?.toLowerCase();
