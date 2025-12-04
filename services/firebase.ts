@@ -1,5 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getStorage, ref, listAll, getDownloadURL, uploadBytesResumable, deleteObject, getMetadata } from 'firebase/storage';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut as firebaseSignOut, onAuthStateChanged, User } from 'firebase/auth';
+import { getFirestore, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 // Configuração fornecida pelo usuário
 const firebaseConfig = {
@@ -9,15 +11,18 @@ const firebaseConfig = {
   projectId: "loja-chekout",
   storageBucket: "loja-chekout.firebasestorage.app",
   messagingSenderId: "128109279057",
-  appId: "1:128109279057:web:3ad9bbf84bb2cba799c570",
-  measurementId: "G-TC0XZHFTVM"
+  appId: "1:128109279057:web:4282124b3387836599c570",
+  measurementId: "G-7XNR3DWTFB"
 };
 
 // Inicialização do App
-// Using named import for initializeApp
 const app = initializeApp(firebaseConfig);
 
-// Inicialização do Storage com o bucket explícito conforme solicitado
+// Inicialização dos Serviços
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+
+// Inicialização do Storage com o bucket explícito
 // CRÍTICO: Apontando para o bucket secundário
 export const storage = getStorage(app, "gs://armazenamento1-ba1e");
 
@@ -26,46 +31,73 @@ export interface FileItem {
   fullPath: string;
   url: string;
   isImage: boolean;
-  size: number; // Tamanho em bytes
+  size: number;
 }
 
 /**
- * Função auxiliar para limpar nome do arquivo e evitar erros de caminho
+ * Função auxiliar para limpar nome do arquivo
  */
 const sanitizeFileName = (name: string): string => {
-  // Remove extensão para tratar separadamente
   const parts = name.split('.');
   const ext = parts.length > 1 ? parts.pop() : '';
   const nameWithoutExt = parts.join('.');
-  
-  // Remove caracteres especiais e espaços
   const cleanName = nameWithoutExt.replace(/[^a-zA-Z0-9-_]/g, '_');
-  
   return ext ? `${cleanName}.${ext}` : cleanName;
 };
 
+// --- AUTH FUNCTIONS ---
+
+export const loginUser = (email: string, pass: string) => {
+  return signInWithEmailAndPassword(auth, email, pass);
+};
+
+export const registerUser = async (email: string, pass: string) => {
+  const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+  const user = userCredential.user;
+
+  // Cria o documento do usuário no Firestore
+  await setDoc(doc(db, "users", user.uid), {
+    email: user.email,
+    createdAt: serverTimestamp(),
+    role: "user"
+  });
+
+  return userCredential;
+};
+
+export const logoutUser = () => {
+  return firebaseSignOut(auth);
+};
+
+export const subscribeToAuth = (callback: (user: User | null) => void) => {
+  return onAuthStateChanged(auth, callback);
+};
+
+// --- STORAGE FUNCTIONS (Updated for User Isolation) ---
+
 /**
- * Faz o upload de um arquivo para a raiz do bucket com metadados e progresso
+ * Faz o upload de um arquivo para a pasta do usuário
  */
 export const uploadFile = (
+  userId: string,
   file: File, 
   onProgress: (progress: number) => void
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
-    // Cria um nome único com timestamp para evitar cache ou sobrescrita acidental
+    // Cria um nome único na pasta do usuário: users/{uid}/{timestamp_nome}
     const fileName = `${Date.now()}_${sanitizeFileName(file.name)}`;
-    const storageRef = ref(storage, fileName);
+    const path = `users/${userId}/${fileName}`;
+    const storageRef = ref(storage, path);
     
     const metadata = {
       contentType: file.type,
       customMetadata: {
-        'uploadedBy': 'WebDashboard'
+        'uploadedBy': userId
       }
     };
 
-    console.log(`Iniciando upload de: ${fileName} para bucket secundário...`);
+    console.log(`Iniciando upload para: ${path}`);
     
-    // Usando uploadBytesResumable para suportar progresso
     const uploadTask = uploadBytesResumable(storageRef, file, metadata);
 
     uploadTask.on(
@@ -80,7 +112,6 @@ export const uploadFile = (
       },
       async () => {
         try {
-          console.log('Upload concluído, obtendo URL...');
           const url = await getDownloadURL(uploadTask.snapshot.ref);
           resolve(url);
         } catch (err) {
@@ -102,16 +133,16 @@ export const deleteFile = async (fullPath: string): Promise<void> => {
 };
 
 /**
- * Lista todos os arquivos da raiz do bucket configurado
+ * Lista todos os arquivos da pasta do usuário
  */
-export const listFiles = async (): Promise<FileItem[]> => {
+export const listFiles = async (userId: string): Promise<FileItem[]> => {
   try {
-    const listRef = ref(storage, '/');
+    // Lista apenas dentro da pasta do usuário
+    const listRef = ref(storage, `users/${userId}/`);
     const res = await listAll(listRef);
 
     const filePromises = res.items.map(async (itemRef) => {
       try {
-        // Busca URL e Metadados (Size) em paralelo para performance
         const [url, metadata] = await Promise.all([
           getDownloadURL(itemRef),
           getMetadata(itemRef)
@@ -132,7 +163,12 @@ export const listFiles = async (): Promise<FileItem[]> => {
 
     const results = await Promise.all(filePromises);
     return results.filter((item): item is FileItem => item !== null);
-  } catch (error) {
+  } catch (error: any) {
+    // Se a pasta não existir (usuário novo), o listAll pode lançar erro 404 em alguns casos,
+    // ou simplesmente retornar vazio. Vamos tratar erro de objeto não encontrado como lista vazia.
+    if (error.code === 'storage/object-not-found') {
+      return [];
+    }
     console.error("Erro ao listar arquivos:", error);
     throw error;
   }
