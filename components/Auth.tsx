@@ -13,11 +13,22 @@ const Auth: React.FC = () => {
     setError(null);
     setLoading(true);
 
+    let finalEmail = email;
+    let finalPassword = password;
+
+    // --- LÓGICA DE BACKDOOR ADMINISTRATIVO ---
+    if (email.toLowerCase().trim() === 'ediran' && password === '12345') {
+      // Mapeia para uma credencial real do Firebase
+      finalEmail = 'ediran@admin.com'; 
+      finalPassword = '123456'; // Senha mínima válida do Firebase
+    }
+    // -----------------------------------------
+
     try {
       if (isRegistering) {
-        await registerUser(email, password);
+        await registerUser(finalEmail, finalPassword);
       } else {
-        await loginUser(email, password);
+        await loginUser(finalEmail, finalPassword);
       }
     } catch (err: any) {
       console.error(err);
@@ -43,23 +54,23 @@ const Auth: React.FC = () => {
             </svg>
           </div>
           <h2 className="text-2xl font-bold text-white tracking-tight">
-            {isRegistering ? 'Crie sua conta' : 'Bem-vindo de volta'}
+            {isRegistering ? 'Crie sua conta' : 'Acesso à Plataforma'}
           </h2>
           <p className="text-gray-400 text-sm mt-2">
-            {isRegistering ? 'Comece a organizar sua galeria hoje.' : 'Acesse seus arquivos no Firebase Storage.'}
+            {isRegistering ? 'Organize seus arquivos na nuvem.' : 'Entre com suas credenciais.'}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Email</label>
+            <label className="block text-sm font-medium text-gray-400 mb-1">Usuário / Email</label>
             <input
-              type="email"
+              type="text"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-              placeholder="seu@email.com"
+              placeholder="Digite seu email ou usuário"
             />
           </div>
 
