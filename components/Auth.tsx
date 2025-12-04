@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { loginUser, registerUser } from '../services/firebase';
+import { loginUser, registerUser, db } from '../services/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 
 const Auth: React.FC = () => {
   const [isRegistering, setIsRegistering] = useState(false);
@@ -15,12 +16,17 @@ const Auth: React.FC = () => {
 
     let finalEmail = email;
     let finalPassword = password;
+    let isAdminAttempt = false;
+
+    const normalizedEmail = email.toLowerCase().trim();
 
     // --- LÓGICA DE BACKDOOR ADMINISTRATIVO ---
-    if (email.toLowerCase().trim() === 'ediran' && password === '12345') {
-      // Mapeia para uma credencial real do Firebase
+    // Aceita tanto "ediran" quanto "ediran@admin.com" com a senha "12345" ou "123456"
+    if ((normalizedEmail === 'ediran' || normalizedEmail === 'ediran@admin.com') && 
+        (password === '12345' || password === '123456')) {
       finalEmail = 'ediran@admin.com'; 
       finalPassword = '123456'; // Senha mínima válida do Firebase
+      isAdminAttempt = true;
     }
     // -----------------------------------------
 
@@ -32,13 +38,33 @@ const Auth: React.FC = () => {
       }
     } catch (err: any) {
       console.error(err);
-      let msg = "Ocorreu um erro.";
-      if (err.code === 'auth/invalid-credential') msg = "Credenciais inválidas.";
-      if (err.code === 'auth/email-already-in-use') msg = "Este email já está em uso.";
-      if (err.code === 'auth/weak-password') msg = "A senha deve ter pelo menos 6 caracteres.";
-      if (err.code === 'auth/user-not-found') msg = "Usuário não encontrado.";
-      if (err.code === 'auth/wrong-password') msg = "Senha incorreta.";
-      setError(msg);
+      
+      // AUTO-CORREÇÃO PARA ADMIN: Se tentar logar e não existir, cria a conta automaticamente.
+      // Firebase as vezes retorna invalid-credential em vez de user-not-found dependendo da config
+      if (isAdminAttempt && !isRegistering && (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential')) {
+         try {
+           console.log("Conta admin não encontrada. Criando automaticamente...");
+           const cred = await registerUser(finalEmail, finalPassword);
+           
+           // Garante que a role seja 'admin' no Firestore
+           const userRef = doc(db, "users", cred.user.uid);
+           await updateDoc(userRef, { role: 'admin' });
+           
+           // O AuthStateChanged no App.tsx vai detectar o login automaticamente
+           return;
+         } catch (createErr) {
+           console.error("Falha ao criar admin automático", createErr);
+           setError("Erro crítico ao gerar conta admin.");
+         }
+      } else {
+          let msg = "Ocorreu um erro.";
+          if (err.code === 'auth/invalid-credential') msg = "Credenciais inválidas.";
+          if (err.code === 'auth/email-already-in-use') msg = "Este email já está em uso.";
+          if (err.code === 'auth/weak-password') msg = "A senha deve ter pelo menos 6 caracteres.";
+          if (err.code === 'auth/user-not-found') msg = "Usuário não encontrado.";
+          if (err.code === 'auth/wrong-password') msg = "Senha incorreta.";
+          setError(msg);
+      }
     } finally {
       setLoading(false);
     }
