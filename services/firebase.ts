@@ -1,5 +1,5 @@
-import * as firebaseApp from 'firebase/app';
-import { getStorage, ref, listAll, getDownloadURL, uploadBytesResumable, deleteObject } from 'firebase/storage';
+import { initializeApp } from 'firebase/app';
+import { getStorage, ref, listAll, getDownloadURL, uploadBytesResumable, deleteObject, getMetadata } from 'firebase/storage';
 
 // Configuração fornecida pelo usuário
 const firebaseConfig = {
@@ -14,8 +14,8 @@ const firebaseConfig = {
 };
 
 // Inicialização do App
-// Using namespace import to avoid "no exported member" error in some environments
-const app = firebaseApp.initializeApp(firebaseConfig);
+// Using named import for initializeApp
+const app = initializeApp(firebaseConfig);
 
 // Inicialização do Storage com o bucket explícito conforme solicitado
 // CRÍTICO: Apontando para o bucket secundário
@@ -26,6 +26,7 @@ export interface FileItem {
   fullPath: string;
   url: string;
   isImage: boolean;
+  size: number; // Tamanho em bytes
 }
 
 /**
@@ -110,15 +111,21 @@ export const listFiles = async (): Promise<FileItem[]> => {
 
     const filePromises = res.items.map(async (itemRef) => {
       try {
-        const url = await getDownloadURL(itemRef);
+        // Busca URL e Metadados (Size) em paralelo para performance
+        const [url, metadata] = await Promise.all([
+          getDownloadURL(itemRef),
+          getMetadata(itemRef)
+        ]);
+        
         return {
           name: itemRef.name,
           fullPath: itemRef.fullPath,
           url: url,
-          isImage: isImageFile(itemRef.name)
+          isImage: isImageFile(itemRef.name),
+          size: metadata.size
         };
       } catch (err) {
-        console.error(`Erro ao obter URL para ${itemRef.name}`, err);
+        console.error(`Erro ao obter dados para ${itemRef.name}`, err);
         return null;
       }
     });

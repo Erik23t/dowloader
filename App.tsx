@@ -4,6 +4,7 @@ import Loader from './components/Loader';
 import FileCard from './components/FileCard';
 import Toast from './components/Toast';
 import PermissionHelp from './components/PermissionHelp';
+import Sidebar from './components/Sidebar';
 
 type SortOption = 'newest' | 'oldest' | 'az' | 'za';
 
@@ -11,6 +12,9 @@ const App: React.FC = () => {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   
+  // Sidebar State
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+
   // Upload States
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
@@ -30,6 +34,8 @@ const App: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string>('');
   const [showToast, setShowToast] = useState<boolean>(false);
   const [toastType, setToastType] = useState<'success' | 'error'>('success');
+
+  const MAX_STORAGE_BYTES = 1024 * 1024 * 1024; // 1 GB
 
   const fetchFiles = useCallback(async () => {
     setLoading(true);
@@ -98,6 +104,23 @@ const App: React.FC = () => {
     return result;
   }, [files, searchTerm, sortBy]);
 
+  // Cálculo de Uso de Armazenamento
+  const totalUsage = useMemo(() => {
+    return files.reduce((acc, file) => acc + (file.size || 0), 0);
+  }, [files]);
+
+  const usagePercentage = Math.min((totalUsage / MAX_STORAGE_BYTES) * 100, 100);
+
+  const formatBytes = (bytes: number, decimals = 2) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  };
+
+
   const handleCopyLink = useCallback((url: string) => {
     navigator.clipboard.writeText(url)
       .then(() => {
@@ -160,8 +183,17 @@ const App: React.FC = () => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 20 * 1024 * 1024) { 
-      setToastMessage('O arquivo é muito grande (Máx 20MB).');
+    // Check storage limit
+    if (totalUsage + file.size > MAX_STORAGE_BYTES) {
+      setToastMessage('Armazenamento cheio! Exclua arquivos para liberar espaço.');
+      setToastType('error');
+      setShowToast(true);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    if (file.size > 50 * 1024 * 1024) { 
+      setToastMessage('O arquivo é muito grande (Máx 50MB).');
       setToastType('error');
       setShowToast(true);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -211,20 +243,40 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-950 text-gray-100">
+      <Sidebar 
+        isOpen={isSidebarOpen} 
+        onClose={() => setIsSidebarOpen(false)} 
+        usedBytes={totalUsage}
+        totalBytes={MAX_STORAGE_BYTES}
+      />
+
       {/* 1. Header Principal */}
       <header className="sticky top-0 z-40 w-full bg-gray-950/90 backdrop-blur-md border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-3">
-              <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 p-2 rounded-lg shadow-lg shadow-indigo-500/20">
-                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            <div className="flex items-center gap-4">
+              {/* Menu Button */}
+              <button 
+                onClick={() => setIsSidebarOpen(true)}
+                className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                title="Abrir Menu"
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
-              </div>
-              <div>
-                <h1 className="text-xl font-bold tracking-tight text-white">
-                  Dashboard <span className="text-indigo-400">Galeria</span>
-                </h1>
+              </button>
+
+              <div className="flex items-center gap-3">
+                <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 p-2 rounded-lg shadow-lg shadow-indigo-500/20">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold tracking-tight text-white hidden sm:block">
+                    Dashboard <span className="text-indigo-400">Galeria</span>
+                  </h1>
+                </div>
               </div>
             </div>
             
@@ -256,13 +308,13 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* 2. Barra de Organização (Toolbar) */}
+      {/* 2. Barra de Organização (Toolbar) com Storage Meter */}
       <div className="bg-gray-900 border-b border-gray-800 py-3 sticky top-16 z-30 shadow-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
             
             {/* Search */}
-            <div className="relative w-full sm:max-w-md">
+            <div className="relative w-full sm:max-w-xs">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -271,24 +323,44 @@ const App: React.FC = () => {
               <input
                 type="text"
                 className="block w-full pl-10 pr-3 py-2 border border-gray-700 rounded-md leading-5 bg-gray-800 text-gray-200 placeholder-gray-500 focus:outline-none focus:bg-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 sm:text-sm transition-colors"
-                placeholder="Pesquisar arquivos por nome..."
+                placeholder="Pesquisar..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
 
-            {/* Controls */}
+            {/* Storage Meter Bar (New) */}
+            <div className="flex-1 w-full px-2 sm:px-6">
+              <div className="flex justify-between items-end mb-1">
+                <span className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Armazenamento</span>
+                <span className="text-xs font-mono text-indigo-300">
+                  {formatBytes(totalUsage)} <span className="text-gray-600">/</span> {formatBytes(MAX_STORAGE_BYTES)}
+                </span>
+              </div>
+              <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-700 ease-out ${
+                     usagePercentage > 90 ? 'bg-gradient-to-r from-red-500 to-red-600 shadow-[0_0_10px_rgba(239,68,68,0.5)]' 
+                     : usagePercentage > 75 ? 'bg-gradient-to-r from-yellow-500 to-yellow-600' 
+                     : 'bg-gradient-to-r from-indigo-500 to-cyan-400'
+                  }`}
+                  style={{ width: `${usagePercentage}%` }}
+                ></div>
+              </div>
+            </div>
+
+            {/* Sort & Refresh */}
             <div className="flex w-full sm:w-auto items-center gap-3">
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                <label htmlFor="sort" className="text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Ordenar:</label>
+                <label htmlFor="sort" className="text-xs font-medium text-gray-500 uppercase whitespace-nowrap hidden md:inline">Ordenar:</label>
                 <select
                   id="sort"
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as SortOption)}
-                  className="block w-full pl-3 pr-10 py-2 text-sm border-gray-700 bg-gray-800 text-gray-200 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                  className="block w-full pl-3 pr-8 py-1.5 text-xs border-gray-700 bg-gray-800 text-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 rounded-md"
                 >
-                  <option value="newest">Mais Recentes</option>
-                  <option value="oldest">Mais Antigos</option>
+                  <option value="newest">Recentes</option>
+                  <option value="oldest">Antigos</option>
                   <option value="az">Nome (A-Z)</option>
                   <option value="za">Nome (Z-A)</option>
                 </select>
