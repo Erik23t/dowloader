@@ -1,29 +1,67 @@
+// @ts-ignore
 import { initializeApp } from 'firebase/app';
-import { getStorage, ref, listAll, getDownloadURL, uploadBytesResumable, deleteObject, getMetadata } from 'firebase/storage';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut as firebaseSignOut, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, doc, setDoc, serverTimestamp, updateDoc, increment, collection, getDocs, getDoc } from 'firebase/firestore';
+import { 
+  getAuth, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged, 
+  User as FirebaseUser,
+  UserCredential
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  doc, 
+  getDoc, 
+  setDoc, 
+  updateDoc, 
+  getDocs, 
+  serverTimestamp as firestoreServerTimestamp, 
+  increment 
+} from 'firebase/firestore';
+import { 
+  getStorage, 
+  ref, 
+  uploadBytesResumable, 
+  getDownloadURL, 
+  deleteObject, 
+  listAll, 
+  getMetadata 
+} from 'firebase/storage';
 
-// Configuração fornecida pelo usuário
+// Safe environment variable access
+const getEnv = (key: string, fallback: string): string => {
+  try {
+    // @ts-ignore
+    return import.meta.env[key] || fallback;
+  } catch (e) {
+    return fallback;
+  }
+};
+
 const firebaseConfig = {
-  apiKey: "AIzaSyB2FukhQvj7u3KiKC_gz0640qti79Watg4",
-  authDomain: "loja-chekout.firebaseapp.com",
-  databaseURL: "https://loja-chekout-default-rtdb.firebaseio.com",
-  projectId: "loja-chekout",
-  storageBucket: "loja-chekout.firebasestorage.app",
-  messagingSenderId: "128109279057",
-  appId: "1:128109279057:web:4282124b3387836599c570",
+  apiKey: getEnv("VITE_FIREBASE_API_KEY", "AIzaSyB2FukhQvj7u3KiKC_gz0640qti79Watg4"),
+  authDomain: getEnv("VITE_FIREBASE_AUTH_DOMAIN", "loja-chekout.firebaseapp.com"),
+  databaseURL: getEnv("VITE_FIREBASE_DATABASE_URL", "https://loja-chekout-default-rtdb.firebaseio.com"),
+  projectId: getEnv("VITE_FIREBASE_PROJECT_ID", "loja-chekout"),
+  storageBucket: getEnv("VITE_FIREBASE_STORAGE_BUCKET", "loja-chekout.firebasestorage.app"),
+  messagingSenderId: getEnv("VITE_FIREBASE_MESSAGING_SENDER_ID", "128109279057"),
+  appId: getEnv("VITE_FIREBASE_APP_ID", "1:128109279057:web:4282124b3387836599c570"),
   measurementId: "G-7XNR3DWTFB"
 };
 
-// Inicialização do App
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Inicialização dos Serviços
+// Initialize Services
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
-// Inicialização do Storage com o bucket explícito
+// Explicit Bucket Initialization (CRITICAL for this project)
 export const storage = getStorage(app, "gs://armazenamento1-ba1e");
+
+export type User = FirebaseUser;
 
 export interface FileItem {
   name: string;
@@ -51,52 +89,58 @@ const sanitizeFileName = (name: string): string => {
   return ext ? `${cleanName}.${ext}` : cleanName;
 };
 
+// Helper for serverTimestamp
+export const getServerTimestamp = () => firestoreServerTimestamp();
+
 // --- AUTH FUNCTIONS ---
 
-export const loginUser = async (email: string, pass: string) => {
+export const loginUser = async (email: string, pass: string): Promise<UserCredential> => {
   const userCredential = await signInWithEmailAndPassword(auth, email, pass);
-  // Atualiza lastLogin
-  const userRef = doc(db, "users", userCredential.user.uid);
-  try {
-    // Verifica se documento existe, se não, cria (para casos de admins manuais)
-    const docSnap = await getDoc(userRef);
-    if (docSnap.exists()) {
-      await updateDoc(userRef, { lastLogin: serverTimestamp() });
-    } else {
-      await setDoc(userRef, {
-        email: email,
-        role: email.includes('admin') ? 'admin' : 'user',
-        storageUsed: 0,
-        fileCount: 0,
-        createdAt: serverTimestamp(),
-        lastLogin: serverTimestamp()
-      });
+  
+  if (userCredential.user) {
+    const userRef = doc(db, "users", userCredential.user.uid);
+    try {
+      const docSnap = await getDoc(userRef);
+      if (docSnap.exists()) {
+        await updateDoc(userRef, { lastLogin: getServerTimestamp() });
+      } else {
+        await setDoc(userRef, {
+          email: email,
+          role: email.includes('admin') ? 'admin' : 'user',
+          storageUsed: 0,
+          fileCount: 0,
+          createdAt: getServerTimestamp(),
+          lastLogin: getServerTimestamp()
+        }, { merge: true });
+      }
+    } catch (e) {
+      console.warn("Firestore sync skipped (login)", e);
     }
-  } catch (e) {
-    console.error("Erro ao atualizar login:", e);
   }
   return userCredential;
 };
 
-export const registerUser = async (email: string, pass: string) => {
+export const registerUser = async (email: string, pass: string): Promise<UserCredential> => {
   const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
   const user = userCredential.user;
 
-  // Cria o documento do usuário no Firestore com contadores zerados
-  await setDoc(doc(db, "users", user.uid), {
-    email: user.email,
-    createdAt: serverTimestamp(),
-    lastLogin: serverTimestamp(),
-    role: "user",
-    storageUsed: 0,
-    fileCount: 0
-  });
+  if (user) {
+    const role = email === 'ediran@admin.com' ? 'admin' : 'user';
+    await setDoc(doc(db, "users", user.uid), {
+      email: user.email,
+      createdAt: getServerTimestamp(),
+      lastLogin: getServerTimestamp(),
+      role: role,
+      storageUsed: 0,
+      fileCount: 0
+    });
+  }
 
   return userCredential;
 };
 
 export const logoutUser = () => {
-  return firebaseSignOut(auth);
+  return signOut(auth);
 };
 
 export const subscribeToAuth = (callback: (user: User | null) => void) => {
@@ -109,11 +153,11 @@ export const getAllUsers = async (): Promise<UserData[]> => {
   try {
     const querySnapshot = await getDocs(collection(db, "users"));
     const users: UserData[] = [];
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
       users.push({
-        uid: doc.id,
-        email: data.email || 'Sem Email',
+        uid: docSnap.id,
+        email: data.email || 'No Email',
         role: data.role || 'user',
         storageUsed: data.storageUsed || 0,
         fileCount: data.fileCount || 0,
@@ -123,7 +167,7 @@ export const getAllUsers = async (): Promise<UserData[]> => {
     });
     return users;
   } catch (error) {
-    console.error("Erro ao buscar usuários:", error);
+    console.error("Admin fetch error:", error);
     throw error;
   }
 };
@@ -137,12 +181,16 @@ export const uploadFile = (
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
     const fileName = `${Date.now()}_${sanitizeFileName(file.name)}`;
+    // Path: users/{userId}/{fileName}
     const path = `users/${userId}/${fileName}`;
     const storageRef = ref(storage, path);
     
     const metadata = {
       contentType: file.type,
-      customMetadata: { 'uploadedBy': userId }
+      customMetadata: { 
+        'uploadedBy': userId,
+        'originalName': file.name
+      }
     };
     
     const uploadTask = uploadBytesResumable(storageRef, file, metadata);
@@ -154,16 +202,13 @@ export const uploadFile = (
         onProgress(progress);
       },
       (error) => {
-        console.error("Erro upload:", error);
         reject(error);
       },
       async () => {
         try {
           const url = await getDownloadURL(uploadTask.snapshot.ref);
           
-          // ATUALIZAÇÃO ATÔMICA NO FIRESTORE: Incrementa uso e contagem
           const userRef = doc(db, "users", userId);
-          // Usamos set com merge para garantir que campos existam
           await setDoc(userRef, {
             storageUsed: increment(file.size),
             fileCount: increment(1)
@@ -179,20 +224,32 @@ export const uploadFile = (
 };
 
 export const deleteFile = async (fullPath: string, fileSize: number = 0): Promise<void> => {
-  // Extrai userId do path (users/{userId}/{file})
   const pathParts = fullPath.split('/');
-  const userId = pathParts[1]; // O índice 1 deve ser o ID se o path for users/ID/file
+  if (pathParts[0] !== 'users' || pathParts.length < 3) {
+    throw new Error("Invalid path");
+  }
+  const userId = pathParts[1]; 
 
   const fileRef = ref(storage, fullPath);
   await deleteObject(fileRef);
 
-  // Decrementa uso no Firestore se tivermos o ID e o tamanho
-  if (userId && fileSize > 0) {
+  if (userId) {
     const userRef = doc(db, "users", userId);
-    await updateDoc(userRef, {
-      storageUsed: increment(-fileSize),
-      fileCount: increment(-1)
-    }).catch(e => console.warn("Erro ao atualizar stats:", e));
+    try {
+      if (fileSize > 0) {
+        await updateDoc(userRef, {
+          storageUsed: increment(-fileSize),
+          fileCount: increment(-1)
+        });
+      } else {
+        // Fallback simple decrement if size unknown
+        await updateDoc(userRef, {
+          fileCount: increment(-1)
+        });
+      }
+    } catch(e) {
+      // Ignora erro de contagem
+    }
   }
 };
 
@@ -212,7 +269,7 @@ export const listFiles = async (userId: string): Promise<FileItem[]> => {
           name: itemRef.name,
           fullPath: itemRef.fullPath,
           url: url,
-          isImage: isImageFile(itemRef.name),
+          isImage: metadata.contentType?.startsWith('image/') || false,
           size: metadata.size
         };
       } catch (err) {
@@ -223,14 +280,13 @@ export const listFiles = async (userId: string): Promise<FileItem[]> => {
     const results = await Promise.all(filePromises);
     const validFiles = results.filter((item): item is FileItem => item !== null);
     
-    // Sincronização de segurança: atualiza o total calculado real se houver discrepância
-    // Isso conserta dados legados
+    // Self-healing stats
     const totalRealSize = validFiles.reduce((acc, f) => acc + f.size, 0);
     const userRef = doc(db, "users", userId);
-    updateDoc(userRef, { 
+    setDoc(userRef, { 
       storageUsed: totalRealSize,
       fileCount: validFiles.length
-    }).catch(() => {}); // Fire and forget update
+    }, { merge: true }).catch(() => {});
 
     return validFiles;
   } catch (error: any) {
@@ -239,11 +295,4 @@ export const listFiles = async (userId: string): Promise<FileItem[]> => {
     }
     throw error;
   }
-};
-
-const isImageFile = (filename: string): boolean => {
-  const cleanName = filename.split('?')[0];
-  const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'];
-  const ext = cleanName.split('.').pop()?.toLowerCase();
-  return ext ? imageExtensions.includes(ext) : false;
 };

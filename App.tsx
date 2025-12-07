@@ -1,24 +1,30 @@
 import React, { useEffect, useState } from 'react';
-import { User } from 'firebase/auth';
-import { subscribeToAuth, logoutUser } from './services/firebase';
+import { subscribeToAuth, logoutUser, User } from './services/firebase';
 import Loader from './components/Loader';
 import Auth from './components/Auth';
 import Dashboard from './components/Dashboard';
 import AdminDashboard from './components/AdminDashboard';
+import LandingPage from './components/LandingPage';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState<'dashboard' | 'admin'>('dashboard');
+  
+  // Controls if we show the landing page (for non-logged in users)
+  const [showLanding, setShowLanding] = useState(true);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuth((currentUser) => {
       setUser(currentUser);
       
-      // Se for o admin, podemos setar a view padrão ou manter dashboard
+      // If user is logged in, we skip the landing page and auth screen
+      if (currentUser) {
+        setShowLanding(false);
+      }
+      
       if (currentUser?.email === 'ediran@admin.com') {
-         // Opcional: já cair direto no admin se preferir
-         // setCurrentView('admin'); 
+         // Optional: automatically switch to admin view if preferred
       }
       
       setLoading(false);
@@ -30,7 +36,8 @@ const App: React.FC = () => {
   const handleLogout = async () => {
     try {
       await logoutUser();
-      setCurrentView('dashboard'); // Reset view on logout
+      setCurrentView('dashboard');
+      setShowLanding(true); // Go back to landing page on logout
     } catch (error) {
       console.error("Erro ao sair:", error);
     }
@@ -40,6 +47,7 @@ const App: React.FC = () => {
     setCurrentView(prev => prev === 'admin' ? 'dashboard' : 'admin');
   };
 
+  // 1. Loading State
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-950 text-white">
@@ -48,33 +56,22 @@ const App: React.FC = () => {
     );
   }
 
+  // 2. Not Logged In State
   if (!user) {
+    // Show Landing Page first
+    if (showLanding) {
+      return <LandingPage onEnter={() => setShowLanding(false)} />;
+    }
+    // If they clicked "Enter" on Landing Page, show Auth
     return <Auth />;
   }
 
-  // Roteamento Simples
+  // 3. Admin View
   if (currentView === 'admin' && user.email === 'ediran@admin.com') {
     return <AdminDashboard user={user} onLogout={handleLogout} />;
   }
 
-  // Passamos uma prop extra para o Sidebar (via Dashboard -> Sidebar) saber que pode navegar
-  // Como o Dashboard encapsula o Sidebar, teríamos que passar essa prop.
-  // Para simplificar sem alterar props do Dashboard agora, vamos manter o Dashboard
-  // Mas precisamos garantir que o usuário admin possa navegar. 
-  
-  // Vamos injetar uma prop modificada no componente Sidebar dentro de Dashboard?
-  // Não, melhor editar o Dashboard para aceitar onNavigateToAdmin se necessário, 
-  // MAS, como o Dashboard tem seu próprio sidebar state, a solução mais limpa
-  // é renderizar o Dashboard e, se o usuário for admin, o Sidebar interno dele
-  // (que já atualizamos no passo anterior) mostrará o botão.
-  // Quando clicado, precisamos que o Dashboard avise o App.
-  
-  // Para isso, precisamos adicionar onNavigateToAdmin no DashboardProps também.
-  // Vou fazer um pequeno ajuste no componente Sidebar.tsx (já feito acima) 
-  // E agora preciso ajustar Dashboard.tsx para passar essa prop para o Sidebar.
-  
-  // Como não pedi para alterar o Dashboard.tsx no XML anterior, vou adicionar uma modificação nele agora.
-  
+  // 4. Standard Dashboard View
   return (
     <div className="relative">
        {/* Botão flutuante para admin (fallback caso sidebar não funcione imediatamente) */}
